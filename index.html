@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gerador de Orçamento</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex items-center justify-center py-10 px-4">
+
+  <div class="w-full max-w-4xl bg-white rounded-lg shadow-lg p-6 md:p-10">
+    <h1 class="text-2xl md:text-3xl font-bold text-center text-blue-600 mb-6">Gerador de Orçamento</h1>
+
+    <!-- Dados Cliente -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div>
+        <label class="block font-medium mb-1">Cliente</label>
+        <input type="text" id="cliente" placeholder="Nome do cliente"
+               class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div>
+        <label class="block font-medium mb-1">Telefone</label>
+        <input type="tel" id="Tel_cliente" placeholder="Telefone do cliente"
+               class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div>
+        <label class="block font-medium mb-1">Data</label>
+        <input type="date" id="data"
+               class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+    </div>
+
+    <!-- Tabela de Itens -->
+    <h2 class="text-lg font-semibold mb-3">Itens</h2>
+    <div class="overflow-x-auto mb-4">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-200">
+          <tr>
+            <th class="text-left px-3 py-2 border">Descrição</th>
+            <th class="text-center px-2 py-2 border">Qtd</th>
+            <th class="text-right px-2 py-2 border">Preço Unit.</th>
+            <th class="text-right px-2 py-2 border">Total</th>
+            <th class="text-center px-2 py-2 border">Ação</th>
+          </tr>
+        </thead>
+        <tbody id="itens-body" class="bg-white">
+          <!-- Itens dinamicamente inseridos -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mb-6">
+      <button onclick="adicionarItem()"
+              class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow">
+        + Adicionar Item
+      </button>
+    </div>
+
+    <!-- Totais -->
+    <div class="text-right space-y-1 text-sm md:text-base font-medium">
+      <div>Total: <span id="total-geral">R$ 0,00</span></div>
+      <div class="text-green-600" style="display: none;">À vista (<span id="label-desconto">10</span>% desconto): <span id="total-desconto">R$ 0,00</span></div>
+    </div>
+
+    <!-- Desconto opcional -->
+   <div class="mt-6 flex flex-col md:flex-row md:items-center md:justify-end gap-2">
+  <label class="flex items-center space-x-2 cursor-pointer select-none">
+    <input type="checkbox" id="usarDesconto" onchange="atualizarTotais()" class="w-5 h-5" />
+    <span>Aplicar desconto</span>
+  </label>
+  <input type="number" id="percentualDesconto" value="10" min="0" max="100"
+         class="w-24 border border-gray-300 rounded px-2 py-1 text-right"
+         oninput="atualizarTotais()" />
+  <span class="text-sm">%</span>
+</div>
+
+
+    <!-- Botão PDF -->
+    <div class="mt-8 text-center">
+      <button onclick="gerarPDF()"
+              class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded shadow">
+        Gerar PDF
+      </button>
+    </div>
+  </div>
+
+  <script>
+    window.onload = () => {
+      const hoje = new Date();
+      const iso = hoje.toISOString().slice(0, 10);
+      document.getElementById('data').value = iso;
+    };
+
+    function formatarData(dataISO) {
+      const data = new Date(dataISO);
+      const dataCorrigida = new Date(data.getTime() + (3 * 60 * 60 * 1000));
+      const dia = String(dataCorrigida.getDate()).padStart(2, '0');
+      const mes = String(dataCorrigida.getMonth() + 1).padStart(2, '0');
+      const ano = dataCorrigida.getFullYear();
+      return `${dia}-${mes}-${ano}`;
+    }
+
+    function adicionarItem() {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="border px-3 py-2"><input type="text" class="descricao w-full border px-2 py-1 rounded" placeholder="Descrição"></td>
+        <td class="border px-2 py-2 text-center"><input type="number" class="quantidade w-16 text-center border rounded px-2 py-1" value="1" min="1" onchange="atualizarTotais()"></td>
+        <td class="border px-2 py-2 text-right"><input type="number" class="preco w-24 text-right border rounded px-2 py-1" value="0.00" min="0" step="0.01" onchange="atualizarTotais()"></td>
+        <td class="border px-2 py-2 text-right total">R$ 0,00</td>
+        <td class="border px-2 py-2 text-center">
+          <button onclick="removerItem(this)" class="text-red-500 hover:underline">Remover</button>
+        </td>
+      `;
+      document.getElementById('itens-body').appendChild(tr);
+      atualizarTotais();
+    }
+
+    function removerItem(btn) {
+      btn.closest('tr').remove();
+      atualizarTotais();
+    }
+
+    function atualizarTotais() {
+      let totalGeral = 0;
+      const linhas = document.querySelectorAll('#itens-body tr');
+
+      linhas.forEach(linha => {
+        const qtd = parseFloat(linha.querySelector('.quantidade').value) || 0;
+        const preco = parseFloat(linha.querySelector('.preco').value) || 0;
+        const total = qtd * preco;
+        linha.querySelector('.total').innerText = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        totalGeral += total;
+      });
+
+      const usarDesconto = document.getElementById('usarDesconto').checked;
+      const percentual = parseFloat(document.getElementById('percentualDesconto').value) || 0;
+      let totalDesconto = totalGeral;
+
+      if (usarDesconto && percentual > 0) {
+        totalDesconto = totalGeral * (1 - percentual / 100);
+        document.querySelector('.text-green-600').style.display = 'block';
+        document.getElementById('label-desconto').innerText = percentual;
+      } else {
+        document.querySelector('.text-green-600').style.display = 'none';
+      }
+
+      document.getElementById('total-geral').innerText = totalGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      document.getElementById('total-desconto').innerText = totalDesconto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    async function gerarPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+
+      const cliente = document.getElementById('cliente').value.trim();
+      const telefone = document.getElementById('Tel_cliente').value.trim();
+      const dataISO = document.getElementById('data').value;
+      const dataFormatada = formatarData(dataISO);
+      const linhas = document.querySelectorAll('#itens-body tr');
+
+      if (!cliente) return alert('Preencha o nome do cliente.');
+      if (linhas.length === 0) return alert('Adicione pelo menos um item.');
+
+      for (let linha of linhas) {
+        const desc = linha.querySelector('.descricao').value.trim();
+        const qtd = parseFloat(linha.querySelector('.quantidade').value);
+        const preco = parseFloat(linha.querySelector('.preco').value);
+
+        if (!desc || qtd <= 0 || preco < 0 || isNaN(qtd) || isNaN(preco)) {
+          alert('Preencha todos os campos corretamente nos itens.');
+          return;
+        }
+      }
+
+      doc.setFontSize(20);
+      doc.setTextColor(33, 150, 243);
+      doc.text('ORÇAMENTO', 40, 50);
+      doc.setDrawColor(33, 150, 243);
+      doc.line(40, 55, 555, 55);
+
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text(`Cliente: ${cliente}`, 40, 75);
+      doc.text(`Telefone: ${telefone}`, 40, 90);
+      doc.text(`Data: ${dataFormatada}`, 40, 105);
+
+      let y = 133;
+      doc.setFontSize(11);
+      doc.setFillColor(240, 240, 240);
+      doc.rect(40, y, 515, 20, 'F');
+      doc.setTextColor(0);
+      doc.text('Descrição', 45, y + 14);
+      doc.text('Qtd', 270, y + 14, { align: 'center' });
+      doc.text('Valor', 360, y + 14, { align: 'right' });
+      doc.text('Total', 450, y + 14, { align: 'right' });
+      y += 33;
+
+      linhas.forEach((linha, idx) => {
+        const desc = linha.querySelector('.descricao').value.trim();
+        const qtd = linha.querySelector('.quantidade').value;
+        const preco = parseFloat(linha.querySelector('.preco').value);
+        const total = parseFloat(linha.querySelector('.total').innerText.replace(/[^\d,-]/g, '').replace(',', '.'));
+
+        const descLines = doc.splitTextToSize(desc, 200);
+        const lineHeight = 14;
+        const blocoAltura = descLines.length * lineHeight;
+        const fillColor = (idx % 2 === 0) ? [255, 255, 255] : [245, 245, 245];
+        doc.setFillColor(...fillColor);
+        doc.rect(40, y - 10, 515, blocoAltura + 8, 'F');
+
+        doc.setTextColor(0);
+        doc.text(descLines, 45, y);
+        const yCentral = y + (descLines.length - 1) * (lineHeight / 2);
+        doc.text(qtd.toString(), 270, yCentral, { align: 'center' });
+        doc.text(preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), 360, yCentral, { align: 'right' });
+        doc.text(total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), 450, yCentral, { align: 'right' });
+
+        y += blocoAltura + 10;
+        if (y > 750) {
+          doc.addPage();
+          y = 50;
+        }
+      });
+
+      const totalGeral = parseFloat(document.getElementById('total-geral').innerText.replace(/[^\d,-]/g, '').replace(',', '.'));
+      const usarDesconto = document.getElementById('usarDesconto').checked;
+      const percentual = parseFloat(document.getElementById('percentualDesconto').value) || 0;
+      const totalComDesconto = usarDesconto && percentual > 0 ? totalGeral * (1 - percentual / 100) : null;
+
+      y += 20;
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text(`Total: ${totalGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 40, y);
+
+      if (totalComDesconto !== null) {
+        y += 18;
+        doc.setTextColor(34, 139, 34);
+        doc.text(`Pagamento à vista (${percentual}% desconto): ${totalComDesconto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 40, y);
+      }
+
+      y += 30;
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text('Observações:', 40, y);
+      y += 12;
+      doc.text('• Orçamento com validade de 15 dias. Após esse prazo, será necessário gerar um novo orçamento.', 40, y);
+
+      y += 60;
+      doc.setDrawColor(0);
+      doc.line(40, y, 250, y);
+      y += 15;
+      doc.setFontSize(11);
+      doc.setTextColor(0);
+      doc.text('Luiz Matias Marceneiro - (12) 99684-8042', 40, y);
+      doc.setFontSize(9);
+      doc.setTextColor(90);
+      doc.text('Responsável Técnico', 40, y + 12);
+
+      doc.save(`orcamento_${cliente.replace(/\s+/g, '_').toLowerCase()}.pdf`);
+    }
+  </script>
+</body>
+</html>
+
